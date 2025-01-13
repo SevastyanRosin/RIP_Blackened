@@ -73,7 +73,7 @@ def add_units():
     print("Услуги добавлены")
 
 
-def add_orders():
+def add_decrees():
     users = User.objects.filter(is_staff=False)
     moderators = User.objects.filter(is_staff=True)
 
@@ -86,45 +86,51 @@ def add_orders():
     for _ in range(30):
         status = random.randint(2, 5)
         owner = random.choice(users)
-        add_order(status, units, owner, moderators)
+        add_decree(status, units, owner, moderators)
 
-    add_order(1, units, users[0], moderators)
-    add_order(2, units, users[0], moderators)
+    add_decree(1, units, users[0], moderators)
+    add_decree(2, units, users[0], moderators)
+    add_decree(3, units, users[0], moderators)
+    add_decree(4, units, users[0], moderators)
+    add_decree(5, units, users[0], moderators)
+
+    for _ in range(10):
+        status = random.randint(2, 5)
+        add_decree(status, units, users[0], moderators)
 
     print("Заявки добавлены")
 
 
-def add_order(status, units, owner, moderators):
-    order = Order.objects.create()
-    order.status = status
+def add_decree(status, units, owner, moderators):
+    decree = Decree.objects.create()
+    decree.status = status
 
     if status in [3, 4]:
-        order.moderator = random.choice(moderators)
-        order.date_complete = random_date()
-        order.date_formation = order.date_complete - random_timedelta()
-        order.date_created = order.date_formation - random_timedelta()
+        decree.moderator = random.choice(moderators)
+        decree.date_complete = random_date()
+        decree.date_formation = decree.date_complete - random_timedelta()
+        decree.date_created = decree.date_formation - random_timedelta()
     else:
-        order.date_formation = random_date()
-        order.date_created = order.date_formation - random_timedelta()
+        decree.date_formation = random_date()
+        decree.date_created = decree.date_formation - random_timedelta()
 
     if status == 3:
-        order.date = calc()
+        decree.date = calc()
 
-    order.name = "Название приказа"
-    order.description = "Описание приказа"
-    order.date = random_date()
+    decree.name = "Название приказа"
+    decree.description = "Описание приказа"
 
-    order.owner = owner
+    decree.owner = owner
 
     for unit in random.sample(list(units), 3):
-        item = UnitOrder(
-            order=order,
+        item = UnitDecree(
+            decree=decree,
             unit=unit,
-            value=random_bool()
+            meeting=random_bool()
         )
         item.save()
 
-    order.save()
+    decree.save()
 
 
 def calc():
@@ -135,4 +141,4 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         add_users()
         add_units()
-        add_orders()
+        add_decrees()

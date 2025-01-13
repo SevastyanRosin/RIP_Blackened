@@ -23,43 +23,49 @@ class UnitSerializer(UnitsSerializer):
         fields = UnitsSerializer.Meta.fields + ("description", )
 
 
-class OrdersSerializer(serializers.ModelSerializer):
+class UnitAddSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Unit
+        fields = ("name", "description", "phone", "image")
+
+
+class DecreesSerializer(serializers.ModelSerializer):
     owner = serializers.StringRelatedField(read_only=True)
     moderator = serializers.StringRelatedField(read_only=True)
 
     class Meta:
-        model = Order
+        model = Decree
         fields = "__all__"
 
 
-class OrderSerializer(OrdersSerializer):
+class DecreeSerializer(DecreesSerializer):
     units = serializers.SerializerMethodField()
 
-    def get_units(self, order):
-        items = UnitOrder.objects.filter(order=order)
-        return [UnitItemSerializer(item.unit, context={"value": item.value}).data for item in items]
+    def get_units(self, decree):
+        items = UnitDecree.objects.filter(decree=decree)
+        return [UnitItemSerializer(item.unit, context={"meeting": item.meeting}).data for item in items]
 
 
 class UnitItemSerializer(UnitSerializer):
-    value = serializers.SerializerMethodField()
+    meeting = serializers.SerializerMethodField()
 
-    def get_value(self, unit):
-        return self.context.get("value")
+    def get_meeting(self, unit):
+        return self.context.get("meeting")
 
     class Meta(UnitSerializer.Meta):
         fields = "__all__"
 
 
-class UnitOrderSerializer(serializers.ModelSerializer):
+class UnitDecreeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = UnitOrder
+        model = UnitDecree
         fields = "__all__"
 
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'email', 'username')
+        fields = ('id', 'email', 'username', 'is_superuser')
 
 
 class UserRegisterSerializer(serializers.ModelSerializer):

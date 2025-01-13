@@ -9,20 +9,20 @@ urlpatterns = [
     path('api/units/<int:unit_id>/update_image/', update_unit_image),  # POST
     path('api/units/<int:unit_id>/delete/', delete_unit),  # DELETE
     path('api/units/create/', create_unit),  # POST
-    path('api/units/<int:unit_id>/add_to_order/', add_unit_to_order),  # POST
+    path('api/units/<int:unit_id>/add_to_decree/', add_unit_to_decree),  # POST
 
     # Набор методов для заявок
-    path('api/orders/', search_orders),  # GET
-    path('api/orders/<int:order_id>/', get_order_by_id),  # GET
-    path('api/orders/<int:order_id>/update/', update_order),  # PUT
-    path('api/orders/<int:order_id>/update_status_user/', update_status_user),  # PUT
-    path('api/orders/<int:order_id>/update_status_admin/', update_status_admin),  # PUT
-    path('api/orders/<int:order_id>/delete/', delete_order),  # DELETE
+    path('api/decrees/', search_decrees),  # GET
+    path('api/decrees/<int:decree_id>/', get_decree_by_id),  # GET
+    path('api/decrees/<int:decree_id>/update/', update_decree),  # PUT
+    path('api/decrees/<int:decree_id>/update_status_user/', update_status_user),  # PUT
+    path('api/decrees/<int:decree_id>/update_status_admin/', update_status_admin),  # PUT
+    path('api/decrees/<int:decree_id>/delete/', delete_decree),  # DELETE
 
     # Набор методов для м-м
-    path('api/orders/<int:order_id>/units/<int:unit_id>/', get_unit_order),  # GET
-    path('api/orders/<int:order_id>/update_unit/<int:unit_id>/', update_unit_in_order),  # PUT
-    path('api/orders/<int:order_id>/delete_unit/<int:unit_id>/', delete_unit_from_order),  # DELETE
+    path('api/decrees/<int:decree_id>/units/<int:unit_id>/', get_unit_decree),  # GET
+    path('api/decrees/<int:decree_id>/update_unit/<int:unit_id>/', update_unit_in_decree),  # PUT
+    path('api/decrees/<int:decree_id>/delete_unit/<int:unit_id>/', delete_unit_from_decree),  # DELETE
 
     # Набор методов для аутентификации и авторизации
     path("api/users/register/", register),  # POST

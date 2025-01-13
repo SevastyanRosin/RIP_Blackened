@@ -23,9 +23,10 @@ class Unit(models.Model):
         verbose_name = "Подразделение"
         verbose_name_plural = "Подразделения"
         db_table = "units"
+        ordering = ("pk",)
 
 
-class Order(models.Model):
+class Decree(models.Model):
     STATUS_CHOICES = (
         (1, 'Введён'),
         (2, 'В работе'),
@@ -44,7 +45,7 @@ class Order(models.Model):
 
     name = models.TextField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    date = models.DateField(blank=True, null=True)
+    date = models.DateField(blank=True, null=True, verbose_name="Дата")
 
     def __str__(self):
         return "Приказ №" + str(self.pk)
@@ -52,14 +53,14 @@ class Order(models.Model):
     class Meta:
         verbose_name = "Приказ"
         verbose_name_plural = "Приказы"
-        db_table = "orders"
+        db_table = "decrees"
         ordering = ('-date_formation', )
 
 
-class UnitOrder(models.Model):
+class UnitDecree(models.Model):
     unit = models.ForeignKey(Unit, on_delete=models.DO_NOTHING, blank=True, null=True)
-    order = models.ForeignKey(Order, on_delete=models.DO_NOTHING, blank=True, null=True)
-    value = models.BooleanField(verbose_name="Поле м-м", default=0)
+    decree = models.ForeignKey(Decree, on_delete=models.DO_NOTHING, blank=True, null=True)
+    meeting = models.BooleanField(verbose_name="Совещание", default=0)
 
     def __str__(self):
         return "м-м №" + str(self.pk)
@@ -67,7 +68,8 @@ class UnitOrder(models.Model):
     class Meta:
         verbose_name = "м-м"
         verbose_name_plural = "м-м"
-        db_table = "unit_order"
+        db_table = "unit_decree"
+        ordering = ("pk",)
         constraints = [
-            models.UniqueConstraint(fields=['unit', 'order'], name="unit_order_constraint")
+            models.UniqueConstraint(fields=['unit', 'decree'], name="unit_decree_constraint")
         ]

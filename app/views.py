@@ -1,4 +1,6 @@
+import random
 import uuid
+from datetime import datetime, timedelta
 
 from django.contrib.auth import authenticate
 from django.utils import timezone
@@ -6,32 +8,32 @@ from django.utils.dateparse import parse_datetime
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 
-from .management.commands.fill_db import calc
 from .permissions import *
 from .redis import session_storage
 from .serializers import *
 from .utils import identity_user, get_session
 
 
-def get_draft_order(request):
+def get_draft_decree(request):
     user = identity_user(request)
 
     if user is None:
         return None
 
-    order = Order.objects.filter(owner=user).filter(status=1).first()
+    decree = Decree.objects.filter(owner=user).filter(status=1).first()
 
-    return order
+    return decree
 
 
 @swagger_auto_schema(
     method='get',
     manual_parameters=[
         openapi.Parameter(
-            'query',
+            'unit_name',
             openapi.IN_QUERY,
             type=openapi.TYPE_STRING
         )
@@ -48,12 +50,12 @@ def search_units(request):
 
     serializer = UnitsSerializer(units, many=True)
 
-    draft_order = get_draft_order(request)
+    draft_decree = get_draft_decree(request)
 
     resp = {
         "units": serializer.data,
-        "units_count": UnitOrder.objects.filter(order=draft_order).count() if draft_order else None,
-        "draft_order_id": draft_order.pk if draft_order else None
+        "units_count": UnitDecree.objects.filter(decree=draft_decree).count() if draft_decree else None,
+        "draft_decree_id": draft_decree.pk if draft_decree else None
     }
 
     return Response(resp)
@@ -70,6 +72,7 @@ def get_unit_by_id(request, unit_id):
     return Response(serializer.data)
 
 
+@swagger_auto_schema(method='put', request_body=UnitSerializer)
 @api_view(["PUT"])
 @permission_classes([IsModerator])
 def update_unit(request, unit_id):
@@ -86,14 +89,21 @@ def update_unit(request, unit_id):
     return Response(serializer.data)
 
 
+@swagger_auto_schema(method='POST', request_body=UnitAddSerializer)
 @api_view(["POST"])
 @permission_classes([IsModerator])
+@parser_classes((MultiPartParser,))
 def create_unit(request):
     serializer = UnitSerializer(data=request.data, partial=False)
 
     serializer.is_valid(raise_exception=True)
 
-    Unit.objects.create(**serializer.validated_data)
+    unit = Unit.objects.create(**serializer.validated_data)
+
+    image = request.data.get("image")
+    if image is not None:
+        unit.image = image
+        unit.save()
 
     units = Unit.objects.filter(status=1)
     serializer = UnitSerializer(units, many=True)
@@ -119,34 +129,41 @@ def delete_unit(request, unit_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def add_unit_to_order(request, unit_id):
+def add_unit_to_decree(request, unit_id):
     if not Unit.objects.filter(pk=unit_id).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
     unit = Unit.objects.get(pk=unit_id)
 
-    draft_order = get_draft_order(request)
+    draft_decree = get_draft_decree(request)
 
-    if draft_order is None:
-        draft_order = Order.objects.create()
-        draft_order.date_created = timezone.now()
-        draft_order.owner = identity_user(request)
-        draft_order.save()
+    if draft_decree is None:
+        draft_decree = Decree.objects.create()
+        draft_decree.date_created = timezone.now()
+        draft_decree.owner = identity_user(request)
+        draft_decree.save()
 
-    if UnitOrder.objects.filter(order=draft_order, unit=unit).exists():
+    if UnitDecree.objects.filter(decree=draft_decree, unit=unit).exists():
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    item = UnitOrder.objects.create()
-    item.order = draft_order
+    item = UnitDecree.objects.create()
+    item.decree = draft_decree
     item.unit = unit
     item.save()
 
-    serializer = OrderSerializer(draft_order)
+    serializer = DecreeSerializer(draft_decree)
     return Response(serializer.data["units"])
 
 
+@swagger_auto_schema(
+    method='post',
+    manual_parameters=[
+        openapi.Parameter('image', openapi.IN_FORM, type=openapi.TYPE_FILE),
+    ]
+)
 @api_view(["POST"])
 @permission_classes([IsModerator])
+@parser_classes((MultiPartParser,))
 def update_unit_image(request, unit_id):
     if not Unit.objects.filter(pk=unit_id).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
@@ -166,58 +183,78 @@ def update_unit_image(request, unit_id):
     return Response(serializer.data)
 
 
+@swagger_auto_schema(
+    method='get',
+    manual_parameters=[
+        openapi.Parameter(
+            'status',
+            openapi.IN_QUERY,
+            type=openapi.TYPE_NUMBER
+        ),
+        openapi.Parameter(
+            'date_formation_start',
+            openapi.IN_QUERY,
+            type=openapi.TYPE_STRING
+        ),
+        openapi.Parameter(
+            'date_formation_end',
+            openapi.IN_QUERY,
+            type=openapi.TYPE_STRING
+        )
+    ]
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def search_orders(request):
+def search_decrees(request):
     status_id = int(request.GET.get("status", 0))
     date_formation_start = request.GET.get("date_formation_start")
     date_formation_end = request.GET.get("date_formation_end")
 
-    orders = Order.objects.exclude(status__in=[1, 5])
+    decrees = Decree.objects.exclude(status__in=[1, 5])
 
     user = identity_user(request)
     if not user.is_superuser:
-        orders = orders.filter(owner=user)
+        decrees = decrees.filter(owner=user)
 
     if status_id > 0:
-        orders = orders.filter(status=status_id)
+        decrees = decrees.filter(status=status_id)
 
     if date_formation_start and parse_datetime(date_formation_start):
-        orders = orders.filter(date_formation__gte=parse_datetime(date_formation_start))
+        decrees = decrees.filter(date_formation__gte=parse_datetime(date_formation_start))
 
     if date_formation_end and parse_datetime(date_formation_end):
-        orders = orders.filter(date_formation__lt=parse_datetime(date_formation_end))
+        decrees = decrees.filter(date_formation__lt=parse_datetime(date_formation_end))
 
-    serializer = OrdersSerializer(orders, many=True)
+    serializer = DecreesSerializer(decrees, many=True)
 
     return Response(serializer.data)
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def get_order_by_id(request, order_id):
+def get_decree_by_id(request, decree_id):
     user = identity_user(request)
 
-    if not Order.objects.filter(pk=order_id, owner=user).exists():
+    if not Decree.objects.filter(pk=decree_id, owner=user).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    order = Order.objects.get(pk=order_id)
-    serializer = OrderSerializer(order)
+    decree = Decree.objects.get(pk=decree_id)
+    serializer = DecreeSerializer(decree)
 
     return Response(serializer.data)
 
 
-@swagger_auto_schema(method='put', request_body=OrderSerializer)
+@swagger_auto_schema(method='put', request_body=DecreeSerializer)
 @api_view(["PUT"])
 @permission_classes([IsAuthenticated])
-def update_order(request, order_id):
+def update_decree(request, decree_id):
     user = identity_user(request)
 
-    if not Order.objects.filter(pk=order_id, owner=user).exists():
+    if not Decree.objects.filter(pk=decree_id, owner=user).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    order = Order.objects.get(pk=order_id)
-    serializer = OrderSerializer(order, data=request.data, partial=True)
+    decree = Decree.objects.get(pk=decree_id)
+    serializer = DecreeSerializer(decree, data=request.data, partial=True)
 
     if serializer.is_valid():
         serializer.save()
@@ -227,30 +264,45 @@ def update_order(request, order_id):
 
 @api_view(["PUT"])
 @permission_classes([IsAuthenticated])
-def update_status_user(request, order_id):
+def update_status_user(request, decree_id):
     user = identity_user(request)
 
-    if not Order.objects.filter(pk=order_id, owner=user).exists():
+    if not Decree.objects.filter(pk=decree_id, owner=user).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    order = Order.objects.get(pk=order_id)
+    decree = Decree.objects.get(pk=decree_id)
 
-    if order.status != 1:
+    if decree.status != 1:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    order.status = 2
-    order.date_formation = timezone.now()
-    order.save()
+    decree.status = 2
+    decree.date_formation = timezone.now()
+    decree.save()
 
-    serializer = OrderSerializer(order)
+    serializer = DecreeSerializer(decree)
 
     return Response(serializer.data)
 
 
+def random_date():
+    now = datetime.now(tz=timezone.utc)
+    return now + timedelta(random.uniform(-1, 0) * 100)
+
+
+@swagger_auto_schema(
+    method='put',
+    request_body=openapi.Schema(
+        title="Update order",
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'status': openapi.Schema(type=openapi.TYPE_NUMBER),
+        }
+    )
+)
 @api_view(["PUT"])
 @permission_classes([IsModerator])
-def update_status_admin(request, order_id):
-    if not Order.objects.filter(pk=order_id).exists():
+def update_status_admin(request, decree_id):
+    if not Decree.objects.filter(pk=decree_id).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
     request_status = int(request.data["status"])
@@ -258,60 +310,60 @@ def update_status_admin(request, order_id):
     if request_status not in [3, 4]:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    order = Order.objects.get(pk=order_id)
+    decree = Decree.objects.get(pk=decree_id)
 
-    if order.status != 2:
+    if decree.status != 2:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     if request_status == 3:
-        order.date = calc()
+        decree.date = random_date()
 
-    order.status = request_status
-    order.date_complete = timezone.now()
-    order.moderator = identity_user(request)
-    order.save()
+    decree.status = request_status
+    decree.date_complete = timezone.now()
+    decree.moderator = identity_user(request)
+    decree.save()
 
-    serializer = OrderSerializer(order)
+    serializer = DecreeSerializer(decree)
 
     return Response(serializer.data)
 
 
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
-def delete_order(request, order_id):
+def delete_decree(request, decree_id):
     user = identity_user(request)
 
-    if not Order.objects.filter(pk=order_id, owner=user).exists():
+    if not Decree.objects.filter(pk=decree_id, owner=user).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    order = Order.objects.get(pk=order_id)
+    decree = Decree.objects.get(pk=decree_id)
 
-    if order.status != 1:
+    if decree.status != 1:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    order.status = 5
-    order.save()
+    decree.status = 5
+    decree.save()
 
     return Response(status=status.HTTP_200_OK)
 
 
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
-def delete_unit_from_order(request, order_id, unit_id):
+def delete_unit_from_decree(request, decree_id, unit_id):
     user = identity_user(request)
 
-    if not Order.objects.filter(pk=order_id, owner=user).exists():
+    if not Decree.objects.filter(pk=decree_id, owner=user).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    if not UnitOrder.objects.filter(order_id=order_id, unit_id=unit_id).exists():
+    if not UnitDecree.objects.filter(decree_id=decree_id, unit_id=unit_id).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    item = UnitOrder.objects.get(order_id=order_id, unit_id=unit_id)
+    item = UnitDecree.objects.get(decree_id=decree_id, unit_id=unit_id)
     item.delete()
 
-    order = Order.objects.get(pk=order_id)
+    decree = Decree.objects.get(pk=decree_id)
 
-    serializer = OrderSerializer(order)
+    serializer = DecreeSerializer(decree)
     units = serializer.data["units"]
 
     return Response(units)
@@ -319,37 +371,37 @@ def delete_unit_from_order(request, order_id, unit_id):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
-def get_unit_order(request, order_id, unit_id):
+def get_unit_decree(request, decree_id, unit_id):
     user = identity_user(request)
 
-    if not Order.objects.filter(pk=order_id, owner=user).exists():
+    if not Decree.objects.filter(pk=decree_id, owner=user).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    if not UnitOrder.objects.filter(unit_id=unit_id, order_id=order_id).exists():
+    if not UnitDecree.objects.filter(unit_id=unit_id, decree_id=decree_id).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    item = UnitOrder.objects.get(unit_id=unit_id, order_id=order_id)
+    item = UnitDecree.objects.get(unit_id=unit_id, decree_id=decree_id)
 
-    serializer = UnitOrderSerializer(item)
+    serializer = UnitDecreeSerializer(item)
 
     return Response(serializer.data)
 
 
-@swagger_auto_schema(method='PUT', request_body=UnitOrderSerializer)
+@swagger_auto_schema(method='PUT', request_body=UnitDecreeSerializer)
 @api_view(["PUT"])
 @permission_classes([IsAuthenticated])
-def update_unit_in_order(request, order_id, unit_id):
+def update_unit_in_decree(request, decree_id, unit_id):
     user = identity_user(request)
 
-    if not Order.objects.filter(pk=order_id, owner=user).exists():
+    if not Decree.objects.filter(pk=decree_id, owner=user).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    if not UnitOrder.objects.filter(unit_id=unit_id, order_id=order_id).exists():
+    if not UnitDecree.objects.filter(unit_id=unit_id, decree_id=decree_id).exists():
         return Response(status=status.HTTP_404_NOT_FOUND)
 
-    item = UnitOrder.objects.get(unit_id=unit_id, order_id=order_id)
+    item = UnitDecree.objects.get(unit_id=unit_id, decree_id=decree_id)
 
-    serializer = UnitOrderSerializer(item, data=request.data, partial=True)
+    serializer = UnitDecreeSerializer(item, data=request.data, partial=True)
 
     if serializer.is_valid():
         serializer.save()
